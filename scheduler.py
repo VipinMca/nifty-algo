@@ -10,7 +10,8 @@ def log(msg):
 
 while True:
     now = dt.datetime.now(IST)
-    target = now.replace(hour=9, minute=25, second=0, microsecond=0)
+    #target = now.replace(hour=9, minute=25, second=0, microsecond=0)
+    target = now
 
     if now > target:
         # If time already passed today, schedule for tomorrow
@@ -25,3 +26,4 @@ while True:
     subprocess.run(["python", "angel_nifty_safe_algo_demo.py"])
 
     log("Algo run finished. Will schedule next day.")
+
