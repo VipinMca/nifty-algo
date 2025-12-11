@@ -7,7 +7,7 @@ IST = pytz.timezone("Asia/Kolkata")
 
 def log(msg):
     print("[SCHEDULER]", msg, flush=True)
-
+#a
 while True:
     now = dt.datetime.now(IST)
     #target = now.replace(hour=9, minute=25, second=0, microsecond=0)
@@ -26,6 +26,7 @@ while True:
     subprocess.run(["python", "angel_nifty_safe_algo_demo.py"])
 
     log("Algo run finished. Will schedule next day.")
+
 
 
 
