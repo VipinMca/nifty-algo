@@ -48,7 +48,7 @@ def push_status(nifty_ltp, legs, prices, net_credit, pnl, logs):
             "pnl": pnl,
             "logs": logs[-30:]
         }
-        BACKEND_URL = "https://your-backend-url.up.railway.app/api/update"
+        BACKEND_URL = "https://niftybackend-production.up.railway.app/api/update"
         requests.post(BACKEND_URL, json=payload, timeout=0.5)
     except Exception as e:
         print("Dashboard update failed:", e)
@@ -288,3 +288,4 @@ def run_algo_demo(client):
 if __name__ == "__main__":
     client = create_client()
     run_algo_demo(client)
+
