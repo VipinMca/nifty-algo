@@ -1,72 +1,111 @@
-# ltp_helpers.py
+"""
+ltp_helpers.py
+---------------
+SmartAPI helper for Railway.
+Uses MPIN login only (no password required).
+Reads all credentials from Railway environment variables.
 
-import time
+Required Railway Variables:
+API_KEY
+CLIENT_ID
+MPIN
+TOTP_SECRET (optional)
+"""
+
+import os
+import logging
+import requests
+from SmartApi.smartConnect import SmartConnect
 import pyotp
-from SmartApi import SmartConnect
 
-# ------------------------------------------------
-# CONFIG FILE PATH
-# ------------------------------------------------
-CONFIG_PATH = r"C:\D Drive\Docs\Trade Script\Options\config.txt"
+# ---------------------------------
+# LOGGER
+# ---------------------------------
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("ltp_helpers")
 
-def load_config():
-    config = {}
-    with open(CONFIG_PATH, "r") as f:
-        for line in f:
-            if "=" in line:
-                key, val = line.strip().split("=", 1)
-                config[key] = val
-    return config
+# ---------------------------------
+# READ ENV VARIABLES
+# ---------------------------------
+API_KEY     = os.getenv("9nxhRaHH")
+CLIENT_ID   = os.getenv("AABW715440")
+MPIN        = os.getenv("8266")            # Required
+TOTP_SECRET = os.getenv("74WFWMXNZYH7K3FBSJLACY4O2Q")     # Optional
 
-cfg = load_config()
+if not API_KEY or not CLIENT_ID or not MPIN:
+    logger.error("❌ Missing required environment variables!")
+    logger.error("Required: API_KEY, CLIENT_ID, MPIN")
+    raise SystemExit("Set Railway variables first.")
 
-API_KEY = cfg.get("API_KEY")
-CLIENT_ID = cfg.get("CLIENT_ID")
-MPIN = cfg.get("MPIN")
-TOTP_SECRET = cfg.get("TOTP_SECRET")
-
-print("DEBUG CONFIG RAW:", cfg)
-print("DEBUG CONFIG:", API_KEY, CLIENT_ID, MPIN, TOTP_SECRET)
-print("DEBUG TOTP_SECRET:", repr(TOTP_SECRET))
-
-
-# ------------------------------------------------
-# LOGIN FUNCTION
-# ------------------------------------------------
+# ---------------------------------
+# SMARTAPI LOGIN (MPIN-ONLY MODE)
+# ---------------------------------
 def create_client():
-    totp = pyotp.TOTP(TOTP_SECRET).now()
-    obj = SmartConnect(api_key=API_KEY)
+    logger.info("🔐 Logging into SmartAPI via MPIN...")
 
-    session = obj.generateSession(CLIENT_ID, MPIN, totp)
+    try:
+        client = SmartConnect(api_key=API_KEY)
 
-    feed_token = obj.getfeedToken()
-    print("Login Successful!")
-    print("Feed Token:", feed_token)
-    print("Refresh Token:", session["data"]["refreshToken"])
-    return obj
+        # TOTP for MPIN login if required
+        totp_val = pyotp.TOTP(TOTP_SECRET).now() if TOTP_SECRET else None
+
+        session = client.generateSession(CLIENT_ID, MPIN, totp_val)
+
+        if not session or session.get("status") is False:
+            logger.error("❌ SmartAPI MPIN login failed: %s", session)
+            raise SystemExit("SmartAPI MPIN login failed")
+
+        logger.info("✅ SmartAPI MPIN login successful.")
+        return client
+
+    except Exception as e:
+        logger.exception("SmartAPI MPIN Login Error:")
+        raise SystemExit(f"SmartAPI MPIN Login Error: {e}")
+
+# ---------------------------------
+# SAFE LTP FETCH
+# ---------------------------------
+def get_ltp(client, exchange, tradingsymbol, token):
+    try:
+        body = {
+            "exchange": exchange,
+            "tradingsymbol": tradingsymbol,
+            "symboltoken": str(token)
+        }
+
+        url = "https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/getLtpData"
+
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-PrivateKey": API_KEY,
+            "X-SourceID": "WEB",
+            "X-UserType": "USER",
+            "X-ClientLocalIP": "127.0.0.1",
+            "X-ClientPublicIP": "127.0.0.1",
+            "X-MACAddress": "00:00:00:00:00:00"
+        }
+
+        r = requests.post(url, json=body, headers=headers, timeout=5)
+        data = r.json()
+
+        if not data.get("status"):
+            logger.warning(f"LTP ERROR for {tradingsymbol}: {data}")
+            return None
+
+        return data["data"]["ltp"]
+
+    except Exception as e:
+        logger.warning(f"LTP fetch failed for {tradingsymbol}: {e}")
+        return None
 
 
-# ------------------------------------------------
-# LTP FUNCTIONS
-# ------------------------------------------------
-def get_ltp(obj, exchange, tradingsymbol, symboltoken):
-    resp = obj.ltpData(exchange, tradingsymbol, symboltoken)
-    if resp and resp.get("status"):
-        return resp["data"]["ltp"]
-    return None
-
-
-def get_multiple_ltps(obj, symbols):
-    results = {}
-    for s in symbols:
-        results[(s["exchange"], s["tradingsymbol"])] = get_ltp(
-            obj, s["exchange"], s["tradingsymbol"], s["symboltoken"]
-        )
-    return results
-
-
-def poll_loop(obj, symbols, interval=1):
-    while True:
-        data = get_multiple_ltps(obj, symbols)
-        print("\nLTP Update:", data)
-        time.sleep(interval)
+# ---------------------------------
+# TEST (optional)
+# ---------------------------------
+if __name__ == "__main__":
+    print("Testing MPIN SmartAPI login...")
+    c = create_client()
+    print("Login OK!")
+    nifty = get_ltp(c, "NSE", "Nifty 50", "99926000")
+    print("NIFTY LTP =", nifty)
