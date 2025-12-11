@@ -27,10 +27,10 @@ logger = logging.getLogger("ltp_helpers")
 # ---------------------------------
 # READ ENV VARIABLES
 # ---------------------------------
-API_KEY     = os.getenv("9nxhRaHH")
-CLIENT_ID   = os.getenv("AABW715440")
-MPIN        = os.getenv("8266")            # Required
-TOTP_SECRET = os.getenv("74WFWMXNZYH7K3FBSJLACY4O2Q")     # Optional
+API_KEY     = os.getenv("API_KEY")
+CLIENT_ID   = os.getenv("CLIENT_ID")
+MPIN        = os.getenv("MPIN")            # Required
+TOTP_SECRET = os.getenv("TOTP_SECRET")     # Optional
 
 if not API_KEY or not CLIENT_ID or not MPIN:
     logger.error("❌ Missing required environment variables!")
@@ -109,3 +109,4 @@ if __name__ == "__main__":
     print("Login OK!")
     nifty = get_ltp(c, "NSE", "Nifty 50", "99926000")
     print("NIFTY LTP =", nifty)
+
