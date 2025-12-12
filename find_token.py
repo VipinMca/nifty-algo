@@ -22,7 +22,7 @@ def load_scrip_master():
 scrip_master = load_scrip_master()
 
 def find_token(exch_seg, symbol):
-    for item in data:
+    for item in scrip_master:
         if item["exch_seg"] == exch_seg and item["symbol"] == symbol:
             return item["token"]
     return None
@@ -43,7 +43,7 @@ def find_nifty_future(expiry_date):
     """
     expiry_date format example: '30JAN2024'
     """
-    for item in data:
+    for item in scrip_master:
         if (
             item["exch_seg"] == "NFO"
             and item["instrumenttype"] == "FUTIDX"
@@ -57,6 +57,7 @@ def find_nifty_future(expiry_date):
 symbol, token = find_nifty_future("30JAN2024")
 print("Nifty Future Symbol:", symbol)
 print("Nifty Future Token:", token)
+
 
 
 
