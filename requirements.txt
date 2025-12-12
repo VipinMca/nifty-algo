@@ -1,9 +1,10 @@
-smartapi-python
+git+https://github.com/angel-one/smartapi-python.git
 pyotp
 requests
 pytz
 pandas
 logzero
 websocket-client
+
 
 
