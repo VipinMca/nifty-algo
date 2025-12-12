@@ -1,6 +1,5 @@
 import requests
 import json
-from .api_constants import BASE_URL
 
 class SmartConnect:
 
@@ -54,3 +53,4 @@ class SmartConnect:
 
     def setRefreshToken(self, token):
         self.refresh_token = token
+
