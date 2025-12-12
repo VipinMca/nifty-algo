@@ -1,4 +1,4 @@
-smartapi-python
+smartapi-python==2.0.0
 pyotp
 requests
 pytz
