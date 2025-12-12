@@ -19,5 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Default command to run your scheduler
-CMD ["python", "angel_nifty_safe_algo_demo.py"]
+CMD ["python", "test_imports.py"]
+
 
