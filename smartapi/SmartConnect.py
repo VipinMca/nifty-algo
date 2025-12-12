@@ -1,6 +1,6 @@
 import requests
 import json
-from .api_constants import BASE_URL
+from smartapi.api_constants import BASE_URL
 
 class SmartConnect:
 
