@@ -431,3 +431,4 @@ if __name__ == "__main__":
         run_algo_demo(client)
     except Exception as e:
         logger.exception("Algo crashed: %s", e)
+
