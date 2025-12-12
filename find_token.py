@@ -23,11 +23,37 @@ scrip_master = load_scrip_master()
 print("FIRST ITEM:", scrip_master[0])
 exit()
 
-def find_token(exch_seg, symbol):
+# data = load_scrip_master()
+
+def find_token(exchange, symbol, instrumenttype=None, expiry=None, strike=None):
+    exchange = exchange.upper()
+    symbol = symbol.upper()
+
     for item in scrip_master:
-        if item["exch_seg"] == exch_seg and item["symbol"] == symbol:
-            return item["token"]
+        # Check exchange
+        if item.get("exch_seg", "").upper() != exchange:
+            continue
+
+        # Check symbol (case-insensitive)
+        if item.get("symbol", "").upper() != symbol and item.get("name", "").upper() != symbol:
+            continue
+
+        # Optional: instrument type match
+        if instrumenttype and item.get("instrumenttype", "").upper() != instrumenttype.upper():
+            continue
+
+        # Optional: expiry match
+        if expiry and item.get("expiry", "") != expiry:
+            continue
+
+        # Optional: strike match
+        if strike and float(item.get("strike", "0")) != float(strike):
+            continue
+
+        return item["token"]
+
     return None
+
 
 
 # ----------------------------------------
@@ -59,6 +85,7 @@ def find_nifty_future(expiry_date):
 symbol, token = find_nifty_future("30JAN2024")
 print("Nifty Future Symbol:", symbol)
 print("Nifty Future Token:", token)
+
 
 
 
