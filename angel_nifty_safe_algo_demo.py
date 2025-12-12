@@ -413,35 +413,26 @@ def run_algo_demo(client):
 # --------------------------------------------
 # REAL ANGEL ONE SMARTAPI V2 CLIENT (MPIN + TOTP)
 # --------------------------------------------
-from smartapi import SmartConnect
-import os, pyotp, logging
+from SmartApi import SmartConnect
+import os, pyotp
 
 def create_client():
-    try:
-        api_key = os.getenv("API_KEY")
-        client_id = os.getenv("CLIENT_ID")
-        mpin = os.getenv("MPIN")
-        totp_secret = os.getenv("TOTP_SECRET")
+    api_key = os.getenv("API_KEY")
+    client_id = os.getenv("CLIENT_ID")
+    password = os.getenv("PASSWORD")
+    totp_secret = os.getenv("TOTP_SECRET")
 
-        totp = pyotp.TOTP(totp_secret).now()
+    totp = pyotp.TOTP(totp_secret).now()
 
-        smart = SmartConnect(api_key)
+    smart = SmartConnect(api_key)
+    data = smart.generateSession(client_id, password, totp)
 
-        # MPIN + TOTP login (SmartAPI V2)
-        data = smart.generateSessionV2(client_id, mpin, totp)
+    smart.setAccessToken(data["data"]["jwtToken"])
+    smart.setRefreshToken(data["data"]["refreshToken"])
 
-        jwt_token = data["data"]["jwtToken"]
-        refresh_token = data["data"]["refreshToken"]
+    print("SmartAPI V1 Login Successful")
+    return smart
 
-        smart.setAccessToken(jwt_token)
-        smart.setRefreshToken(refresh_token)
-
-        logging.info("🔐 SmartAPI V2 MPIN Login Successful")
-        return smart
-
-    except Exception as e:
-        logging.error(f"❌ SmartAPI V2 Login Failed: {e}")
-        return None
 
 # --------------------------------------------
 # RUN
@@ -453,6 +444,7 @@ if __name__ == "__main__":
         run_algo_demo(client)
     except Exception as e:
         logger.exception("Algo crashed: %s", e)
+
 
 
 
