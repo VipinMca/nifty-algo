@@ -20,4 +20,3 @@ COPY . .
 
 # Default command to run your scheduler
 CMD ["python", "test_imports.py"]
-
