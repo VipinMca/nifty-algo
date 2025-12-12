@@ -70,4 +70,217 @@ def wait_until(h, m):
 
 
 # --------------------------------------------
-# FETCH NEXT EXP
+# FETCH NEXT EXPIRY
+# --------------------------------------------
+def get_next_expiry_from_master():
+    print("\nDEBUG: Loading expiries from master...")
+
+    with open(SCRIP_MASTER_PATH, "r") as f:
+        data = json.load(f)
+
+    expiries = []
+    for it in data:
+        if it.get("name") == "NIFTY" and it.get("exch_seg") == "NFO":
+            exp = it.get("expiry", "")
+            if len(exp) == 9:  # DDMMMYYYY
+                expiries.append(exp)
+
+    expiries = sorted(set(expiries), key=lambda e: dt.datetime.strptime(e, "%d%b%Y"))
+
+    today = dt.date.today()
+    for exp in expiries:
+        d = dt.datetime.strptime(exp, "%d%b%Y").date()
+        if d >= today:
+            print("DEBUG: Selected Expiry =", exp)
+            return d
+
+    raise Exception("No future expiry found in scrip master.")
+
+
+# --------------------------------------------
+# GET NIFTY LTP
+# --------------------------------------------
+def get_nifty_ltp(client):
+    symbol = "Nifty 50"
+    token = "99926000"
+    return get_ltp(client, "NSE", symbol, token)
+
+
+# --------------------------------------------
+# COMPUTE OPTION STRIKES & TOKENS
+# --------------------------------------------
+def compute_legs(client):
+    nifty = get_nifty_ltp(client)
+    print("\nDEBUG: NIFTY LTP =", nifty)
+
+    raw_ce = round_strike(nifty * (1 + STRIKE_DISTANCE_PCT / 100))
+    raw_pe = round_strike(nifty * (1 - STRIKE_DISTANCE_PCT / 100))
+    raw_he_ce = raw_ce + HEDGE_DISTANCE_PTS
+    raw_he_pe = raw_pe - HEDGE_DISTANCE_PTS
+
+    print("DEBUG RAW STRIKES:", raw_ce, raw_pe, raw_he_ce, raw_he_pe)
+
+    expiry_date = get_next_expiry_from_master()
+    exp_short = expiry_date.strftime("%d%b%y").upper()
+    exp_long = expiry_date.strftime("%d%b%Y").upper()
+    print("DEBUG EXPIRY:", exp_short, exp_long)
+
+    # Load master data
+    with open(SCRIP_MASTER_PATH, "r") as f:
+        data = json.load(f)
+
+    available = []
+    for it in data:
+        if it.get("name") == "NIFTY" and it.get("exch_seg") == "NFO":
+            if it.get("expiry") == exp_long:
+                try:
+                    strike_val = int(float(it.get("strike", "0")))
+                    available.append(strike_val)
+                except:
+                    pass
+
+    available = sorted(set(available))
+    print("DEBUG AVAILABLE FOR EXPIRY:", available[:30])
+
+    if not available:
+        raise Exception("No strikes found for expiry")
+
+    # Nearest strike
+    nearest = lambda target: min(available, key=lambda x: abs(x - target))
+
+    ce_full = nearest(raw_ce * 100)
+    pe_full = nearest(raw_pe * 100)
+    he_ce_full = nearest(raw_he_ce * 100)
+    he_pe_full = nearest(raw_he_pe * 100)
+
+    print("DEBUG MATCHED FULL STRIKES:", ce_full, pe_full, he_ce_full, he_pe_full)
+
+    def make_symbol(full, opt):
+        short_strike = full // 100
+        opt = "CE" if opt.upper() == "CE" else "PE"
+        return f"NIFTY{exp_short}{short_strike}{opt}"
+
+    legs = {
+        "sell_ce": {"exchange": "NFO", "symbol": make_symbol(ce_full, "CE"), "full": ce_full},
+        "sell_pe": {"exchange": "NFO", "symbol": make_symbol(pe_full, "PE"), "full": pe_full},
+        "buy_ce": {"exchange": "NFO", "symbol": make_symbol(he_ce_full, "CE"), "full": he_ce_full},
+        "buy_pe": {"exchange": "NFO", "symbol": make_symbol(he_pe_full, "PE"), "full": he_pe_full},
+    }
+
+    # Token lookup
+    for k, v in legs.items():
+        print("DEBUG SYMBOL:", v["symbol"])
+        v["token"] = find_token("NFO", v["symbol"])
+        print(f"DEBUG TOKEN: {v['symbol']} → {v['token']}")
+
+    print("\nFINAL LEGS =", legs)
+    return legs
+
+
+# --------------------------------------------
+# GET LTP OF ALL LEGS
+# --------------------------------------------
+def get_leg_prices(client, legs):
+    prices = {}
+    for k, v in legs.items():
+        tok = v["token"]
+        if not tok:
+            prices[k] = 0
+            continue
+        l = get_ltp(client, v["exchange"], v["symbol"], tok)
+        prices[k] = l if l is not None else 0
+    return prices
+
+
+# --------------------------------------------
+# DEMO ENTRY & EXIT
+# --------------------------------------------
+entry_prices = {}
+
+def demo_entry(legs, prices):
+    global entry_prices
+    entry_prices = prices
+    net_credit = (prices["sell_ce"] + prices["sell_pe"]) - (prices["buy_ce"] + prices["buy_pe"])
+    logger.info("\n🟢 DEMO ENTRY")
+    logger.info(f"Entry Prices: {prices}")
+    logger.info(f"Net Credit: {net_credit}")
+    return net_credit
+
+
+def demo_exit(legs, prices, note):
+    pnl = ((entry_prices["sell_ce"] - prices["sell_ce"]) +
+           (entry_prices["sell_pe"] - prices["sell_pe"]) -
+           (entry_prices["buy_ce"] - prices["buy_ce"]) -
+           (entry_prices["buy_pe"] - prices["buy_pe"]))
+
+    logger.info("\n🔴 DEMO EXIT")
+    logger.info(f"Reason: {note}")
+    logger.info(f"Exit Prices: {prices}")
+    logger.info(f"PnL: {pnl}")
+    logger.info("-" * 50)
+
+
+# --------------------------------------------
+# MAIN ALGO LOOP
+# --------------------------------------------
+def run_algo_demo(client):
+    wait_until(*ENTRY_TIME)
+
+    legs = compute_legs(client)
+    prices = get_leg_prices(client, legs)
+    initial_credit = demo_entry(legs, prices)
+
+    target = initial_credit * 0.65
+    sl = initial_credit * -0.5
+
+    logger.info(f"Target: {target}, SL: {sl}")
+
+    while True:
+        now = dt.datetime.now()
+        if now.hour > EXIT_TIME[0] or (now.hour == EXIT_TIME[0] and now.minute >= EXIT_TIME[1]):
+            prices = get_leg_prices(client, legs)
+            demo_exit(legs, prices, "TIME EXIT")
+            return
+
+        prices = get_leg_prices(client, legs)
+        net_credit = (prices["sell_ce"] + prices["sell_pe"]) - (prices["buy_ce"] + prices["buy_pe"])
+        pnl = net_credit - initial_credit
+
+        logger.info(f"Loop → Credit: {net_credit}, PnL: {pnl}")
+
+        nft = get_nifty_ltp(client)
+        legs_display = {
+            name: {
+                "symbol": info["symbol"],
+                "token": info["token"],
+                "price": prices[name]
+            }
+            for name, info in legs.items()
+        }
+
+        push_status(
+            nifty_ltp=nft,
+            legs=legs_display,
+            prices=prices,
+            net_credit=net_credit,
+            pnl=pnl,
+            logs=[f"Loop credit={net_credit}, pnl={pnl}"]
+        )
+
+        if net_credit <= target:
+            demo_exit(legs, prices, "TARGET HIT")
+            return
+
+        if pnl <= sl:
+            demo_exit(legs, prices, "STOPLOSS HIT")
+            return
+
+        time.sleep(POLL_INTERVAL)
+
+
+# --------------------------------------------
+# RUN
+# --------------------------------------------
+if __name__ == "__main__":
+    client = create_client()
+    run_algo_demo(client)
