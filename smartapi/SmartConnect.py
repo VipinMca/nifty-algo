@@ -22,30 +22,42 @@ class SmartConnect:
         }
 
     def generateSessionV2(self, client_id, mpin, totp):
-        url = f"{BASE_URL}/rest/auth/angelbroking/user/v1/loginByMpin"
+    url = f"{BASE_URL}/rest/auth/angelbroking/user/v1/loginByMpin"
 
-        payload = {
-            "clientcode": client_id,
-            "mpin": mpin,
-            "totp": totp
-        }
+    payload = {
+        "clientcode": client_id,
+        "mpin": mpin,
+        "totp": str(totp)
+    }
 
-        response = requests.post(url, json=payload, headers=self.base_headers)
+    headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        "Accept": "application/json",
+        "X-PrivateKey": self.api_key,
+        "X-UserType": "USER",
+        "X-SourceID": "WEB",
+        "X-ClientLocalIP": "127.0.0.1",
+        "X-ClientPublicIP": "127.0.0.1",
+        "X-MACAddress": "AA-BB-CC-11-22-33"
+    }
 
-        # Print raw output for debugging
-        print("RAW LOGIN RESPONSE TEXT:", response.text)
-        print("STATUS:", response.status_code)
+    response = requests.post(url, json=payload, headers=headers)
 
-        # Handle empty / non-JSON responses safely
-        if response.text.strip() == "" or not response.text.strip().startswith("{"):
-            raise Exception("Invalid response from SmartAPI server")
+    print("RAW LOGIN RESPONSE TEXT:", response.text)
+    print("STATUS:", response.status_code)
 
-        data = response.json()
+    if "<html>" in response.text.lower():
+        raise Exception("Invalid response from SmartAPI server (WAF blocked).")
 
-        if not data.get("status"):
-            raise Exception(f"Login failed: {data.get('message')}")
+    data = response.json()
 
-        return data
+    if not data.get("status"):
+        raise Exception(f"Login failed: {data.get('message')}")
+
+    self.jwt_token = data["data"]["jwtToken"]
+    self.refresh_token = data["data"]["refreshToken"]
+    return data
+
 
     def setAccessToken(self, token):
         self.jwt_token = token
