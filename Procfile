@@ -1,1 +1,1 @@
-worker: python test_imports.py
+worker: python scheduler.py
