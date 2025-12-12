@@ -1,17 +1,25 @@
 """
 SAFE DEMO VERSION — DOES NOT PLACE REAL ORDERS
-Works with SmartAPI + ltp_helpers.py + scrip_master.json.
-Provides live updates to a Web Dashboard via /api/update.
+Updated: robust handling, uses ltp_helpers DATA if present,
+falls back to safe stubs for create_client/get_ltp so script
+doesn't fail import-time errors on Railway.
 """
 
 import time
 import datetime as dt
 import json
 import logging, sys
-import requests  # <-- Added for dashboard updates
+import requests  # for dashboard updates and optional HTTP LTP
+import os
 
-from ltp_helpers import get_ltp
-from find_token import find_token
+# Try to import helpers. ltp_helpers should provide token lookup and optional get_ltp, DATA.
+try:
+    from ltp_helpers import get_ltp as helper_get_ltp, DATA as SCRIP_DATA, find_token as helper_find_token
+except Exception:
+    # If ltp_helpers isn't the version you expect, we'll set fallbacks below.
+    helper_get_ltp = None
+    helper_find_token = None
+    SCRIP_DATA = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,8 +40,11 @@ ROUND = 50
 POLL_INTERVAL = 5
 LIVE = False  # DEMO ONLY
 
-SCRIP_MASTER_PATH = r"C:\D Drive\Docs\Trade Script\Options\scrip_master.json"
+# Local fallback path (used only if SCRIP_DATA not available)
+SCRIP_MASTER_PATH = os.getenv("SCRIP_CACHE_PATH", "/tmp/scrip_master.json")
 
+# Optional backend for status updates
+BACKEND_URL = os.getenv("BACKEND_URL", "https://niftybackend-production.up.railway.app/api/update")
 
 # --------------------------------------------
 # SEND STATUS TO WEB DASHBOARD
@@ -48,10 +59,10 @@ def push_status(nifty_ltp, legs, prices, net_credit, pnl, logs):
             "pnl": pnl,
             "logs": logs[-30:]
         }
-        BACKEND_URL = "https://niftybackend-production.up.railway.app/api/update"
-        requests.post(BACKEND_URL, json=payload, timeout=0.5)
+        requests.post(BACKEND_URL, json=payload, timeout=1)
     except Exception as e:
-        print("Dashboard update failed:", e)
+        # Non-fatal; dashboard is optional
+        logger.debug("Dashboard update failed: %s", e)
 
 
 # --------------------------------------------
@@ -71,40 +82,155 @@ def wait_until(h, m):
 
 
 # --------------------------------------------
-# FETCH NEXT EXPIRY FROM MASTER
+# SCRIP MASTER LOADING (uses ltp_helpers.DATA if available)
 # --------------------------------------------
-def get_next_expiry_from_master():
-    print("\nDEBUG: Loading expiries from master...")
+def load_local_master():
+    """
+    Load from local cache path (fallback). Returns list.
+    """
+    if not os.path.exists(SCRIP_MASTER_PATH):
+        logger.warning("SCRIP_MASTER_PATH not found: %s", SCRIP_MASTER_PATH)
+        return []
 
-    with open(SCRIP_MASTER_PATH, "r") as f:
-        data = json.load(f)
+    try:
+        with open(SCRIP_MASTER_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                logger.info("Loaded scrip master from local file: %s (%d records)", SCRIP_MASTER_PATH, len(data))
+                return data
+            else:
+                logger.warning("Local scrip master is not a list.")
+                return []
+    except Exception as e:
+        logger.exception("Failed to load local scrip master: %s", e)
+        return []
 
-    expiries = []
-    for it in data:
-        if it.get("name") == "NIFTY" and it.get("exch_seg") == "NFO":
-            exp = it.get("expiry", "")
-            if len(exp) == 9:  # DDMMMYYYY
-                expiries.append(exp)
 
-    expiries = sorted(set(expiries), key=lambda e: dt.datetime.strptime(e, "%d%b%Y"))
+# Preferred master (from ltp_helpers if present)
+if SCRIP_DATA and isinstance(SCRIP_DATA, list) and len(SCRIP_DATA) > 0:
+    MASTER = SCRIP_DATA
+    logger.info("Using scrip master from ltp_helpers.DATA (%d records)", len(MASTER))
+else:
+    MASTER = load_local_master()
 
-    today = dt.date.today()
-    for exp in expiries:
-        d = dt.datetime.strptime(exp, "%d%b%Y").date()
-        if d >= today:
-            print("DEBUG: Selected Expiry =", exp)
-            return d
 
-    raise Exception("No future expiry found in scrip master.")
+# Safe find_token wrapper: use helper_find_token if available, else fallback to naive match.
+def find_token(exchange, symbol):
+    """
+    Minimal wrapper compatible with previous calls: find_token("NFO", "NIFTY30DEC24000CE")
+    The helper_find_token from ltp_helpers is preferred. If not available we do a simple search.
+    """
+    # Use provided helper if available
+    if helper_find_token:
+        try:
+            return helper_find_token(exchange, symbol)
+        except Exception as e:
+            logger.debug("helper_find_token exception: %s", e)
+
+    # Fallback naive search:
+    ex_norm = (exchange or "").strip().upper()
+    sym_norm = (symbol or "").strip().upper()
+
+    for item in MASTER:
+        if (item.get("exch_seg") or "").strip().upper() != ex_norm:
+            continue
+        # check symbol and name fields (case-insensitive)
+        if sym_norm == (item.get("symbol") or "").strip().upper() or sym_norm == (item.get("name") or "").strip().upper():
+            return item.get("token")
+        # allow partial match (e.g. "NIFTY" in "Nifty 50")
+        if sym_norm in (item.get("symbol") or "").upper() or sym_norm in (item.get("name") or "").upper():
+            return item.get("token")
+    return None
 
 
 # --------------------------------------------
 # GET NIFTY LTP
 # --------------------------------------------
+# Prefer helper_get_ltp. If not present, use HTTP fallback (best-effort) or return 0.
+def get_ltp(client, exchange, symbol, token):
+    # If helper exists, delegate
+    if helper_get_ltp:
+        try:
+            return helper_get_ltp(client, exchange, symbol, token)
+        except Exception as e:
+            logger.debug("helper_get_ltp failed: %s", e)
+
+    # Fallback: try a very small public quote attempt (best-effort)
+    # NOTE: This is a best-effort placeholder for demo — replace with broker LTP in production.
+    try:
+        # Try to parse token -> if token is numeric, we can't fetch public quote reliably
+        # So return 0 to avoid crashes.
+        logger.debug("Using fallback get_ltp for %s (%s)", symbol, token)
+        return 0
+    except Exception as e:
+        logger.debug("fallback get_ltp error: %s", e)
+        return 0
+
+
+# --------------------------------------------
+# COMPUTE NEXT EXPIRY FROM MASTER
+# --------------------------------------------
+def get_next_expiry_from_master():
+    logger.info("DEBUG: Loading expiries from master...")
+    expiries = []
+    for it in MASTER:
+        if it.get("name") == "NIFTY" and it.get("exch_seg") == "NFO":
+            exp = it.get("expiry", "")
+            if exp and len(exp) in (7, 9):  # allow flexible formats (e.g. 30JAN24 or 30JAN2024)
+                expiries.append(exp)
+
+    if not expiries:
+        raise Exception("No expiries found in scrip master (NFO NIFTY)")
+
+    # Normalize and sort using try/except
+    def parse_exp(e):
+        for fmt in ("%d%b%Y", "%d%b%y", "%d%b%Y"):
+            try:
+                return dt.datetime.strptime(e, fmt).date()
+            except Exception:
+                continue
+        # final fallback: return far future
+        return dt.date.max
+
+    expiries_sorted = sorted(set(expiries), key=lambda e: parse_exp(e))
+    today = dt.date.today()
+    for exp in expiries_sorted:
+        d = parse_exp(exp)
+        if d >= today:
+            logger.info("DEBUG: Selected expiry %s -> %s", exp, d)
+            return d
+
+    # if nothing >= today, return the latest available
+    last = parse_exp(expiries_sorted[-1])
+    logger.info("DEBUG: No future expiry >= today; returning last expiry %s", last)
+    return last
+
+
+# --------------------------------------------
+# GET NIFTY LTP wrapper using token if available
+# --------------------------------------------
 def get_nifty_ltp(client):
-    symbol = "Nifty 50"
-    token = "99926000"
-    return get_ltp(client, "NSE", symbol, token)
+    # Try to find NIFTY token from MASTER (prefer name match)
+    t = None
+    # prefer direct match on 'name' being 'NIFTY' or symbol containing 'NIFTY'
+    for item in MASTER:
+        if (item.get("exch_seg") or "").upper() == "NSE":
+            if (item.get("name") or "").strip().upper() == "NIFTY":
+                t = item.get("token")
+                sym = item.get("symbol") or "Nifty 50"
+                break
+            if "NIFTY" in (item.get("symbol") or "").upper():
+                t = item.get("token")
+                sym = item.get("symbol")
+                break
+
+    if not t:
+        # fallback to hardcoded token used previously
+        logger.debug("NIFTY token not found in MASTER; using fallback token 99926000")
+        t = "99926000"
+        sym = "Nifty 50"
+
+    return get_ltp(None, "NSE", sym, t)
 
 
 # --------------------------------------------
@@ -112,26 +238,23 @@ def get_nifty_ltp(client):
 # --------------------------------------------
 def compute_legs(client):
     nifty = get_nifty_ltp(client)
-    print("\nDEBUG: NIFTY LTP =", nifty)
+    logger.info("DEBUG: NIFTY LTP = %s", nifty)
 
     raw_ce = round_strike(nifty * (1 + STRIKE_DISTANCE_PCT / 100))
     raw_pe = round_strike(nifty * (1 - STRIKE_DISTANCE_PCT / 100))
     raw_he_ce = raw_ce + HEDGE_DISTANCE_PTS
     raw_he_pe = raw_pe - HEDGE_DISTANCE_PTS
 
-    print("DEBUG RAW STRIKES:", raw_ce, raw_pe, raw_he_ce, raw_he_pe)
+    logger.info("DEBUG RAW STRIKES: %s %s %s %s", raw_ce, raw_pe, raw_he_ce, raw_he_pe)
 
     expiry_date = get_next_expiry_from_master()
     exp_short = expiry_date.strftime("%d%b%y").upper()
     exp_long = expiry_date.strftime("%d%b%Y").upper()
-    print("DEBUG EXPIRY:", exp_short, exp_long)
+    logger.info("DEBUG EXPIRY: %s %s", exp_short, exp_long)
 
-    # Load strikes from master
-    with open(SCRIP_MASTER_PATH, "r") as f:
-        data = json.load(f)
-
+    # Build available strikes from MASTER
     available = []
-    for it in data:
+    for it in MASTER:
         if it.get("name") == "NIFTY" and it.get("exch_seg") == "NFO":
             if it.get("expiry") == exp_long:
                 try:
@@ -141,20 +264,21 @@ def compute_legs(client):
                     pass
 
     available = sorted(set(available))
-    print("DEBUG AVAILABLE FOR EXPIRY (sample):", available[:50])
+    logger.info("DEBUG AVAILABLE FOR EXPIRY (sample): %s", available[:50])
 
     if not available:
         raise Exception("No strikes found for expiry")
 
-    # Nearest real strike mapper
+    # Nearest mapper (available contains strike integers)
     nearest = lambda target: min(available, key=lambda x: abs(x - target))
 
+    # Note: original code used *100 mapping; keep same semantics
     ce_full = nearest(raw_ce * 100)
     pe_full = nearest(raw_pe * 100)
     he_ce_full = nearest(raw_he_ce * 100)
     he_pe_full = nearest(raw_he_pe * 100)
 
-    print("DEBUG MATCHED FULL STRIKES:", ce_full, pe_full, he_ce_full, he_pe_full)
+    logger.info("DEBUG MATCHED FULL STRIKES: %s %s %s %s", ce_full, pe_full, he_ce_full, he_pe_full)
 
     def make_symbol(full, opt):
         short_strike = full // 100  # 2595000 → 25950
@@ -168,13 +292,13 @@ def compute_legs(client):
         "buy_pe": {"exchange": "NFO", "symbol": make_symbol(he_pe_full, "PE"), "full": he_pe_full},
     }
 
-    # Token assignment
+    # Token assignment using find_token wrapper
     for k, v in legs.items():
-        print("DEBUG BUILDED SYMBOL:", v["symbol"])
+        logger.info("DEBUG BUILT SYMBOL: %s", v["symbol"])
         v["token"] = find_token("NFO", v["symbol"])
-        print(f"DEBUG TOKEN LOOKUP: {v['symbol']} → {v['token']}")
+        logger.info("DEBUG TOKEN LOOKUP: %s → %s", v["symbol"], v["token"])
 
-    print("\nFINAL LEGS =", legs)
+    logger.info("FINAL LEGS = %s", legs)
     return legs
 
 
@@ -184,7 +308,7 @@ def compute_legs(client):
 def get_leg_prices(client, legs):
     prices = {}
     for k, v in legs.items():
-        tok = v["token"]
+        tok = v.get("token")
         if not tok:
             prices[k] = 0
             continue
@@ -197,6 +321,7 @@ def get_leg_prices(client, legs):
 # DEMO ENTRY & EXIT
 # --------------------------------------------
 entry_prices = {}
+
 
 def demo_entry(legs, prices):
     global entry_prices
@@ -254,8 +379,8 @@ def run_algo_demo(client):
         legs_display = {
             name: {
                 "symbol": info["symbol"],
-                "token": info["token"],
-                "price": prices[name]
+                "token": info.get("token"),
+                "price": prices.get(name, 0)
             }
             for name, info in legs.items()
         }
@@ -283,10 +408,26 @@ def run_algo_demo(client):
 
 
 # --------------------------------------------
+# create_client fallback (was missing previously)
+# --------------------------------------------
+def create_client():
+    """
+    Return a client/session object for broker APIs.
+    The real implementation depends on broker (Angel SmartAPI etc).
+    This fallback returns None and logs a message.
+    Replace this with your real create_client() that authenticates with your broker.
+    """
+    logger.info("create_client() fallback used — no broker client created. Replace with real implementation.")
+    return None
+
+
+# --------------------------------------------
 # RUN
 # --------------------------------------------
 if __name__ == "__main__":
+    # create_client() no longer imported from ltp_helpers; use local (or replace with real)
     client = create_client()
-    run_algo_demo(client)
-
-
+    try:
+        run_algo_demo(client)
+    except Exception as e:
+        logger.exception("Algo crashed: %s", e)
