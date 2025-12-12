@@ -414,9 +414,7 @@ def run_algo_demo(client):
 # REAL ANGEL ONE SMARTAPI V2 CLIENT (MPIN + TOTP)
 # --------------------------------------------
 from smartapi import SmartConnect
-import pyotp
-import os
-import logging
+import os, pyotp, logging
 
 def create_client():
     try:
@@ -425,30 +423,25 @@ def create_client():
         mpin = os.getenv("MPIN")
         totp_secret = os.getenv("TOTP_SECRET")
 
-        if not all([api_key, client_id, mpin, totp_secret]):
-            raise Exception("Missing environment variables")
-
-        # SmartAPI V2 → MPIN + TOTP
         totp = pyotp.TOTP(totp_secret).now()
 
         smart = SmartConnect(api_key)
 
+        # MPIN + TOTP login (SmartAPI V2)
         data = smart.generateSessionV2(client_id, mpin, totp)
 
-        token = data["data"]["jwtToken"]
-        refresh = data["data"]["refreshToken"]
+        jwt_token = data["data"]["jwtToken"]
+        refresh_token = data["data"]["refreshToken"]
 
-        smart.setAccessToken(token)
-        smart.setRefreshToken(refresh)
+        smart.setAccessToken(jwt_token)
+        smart.setRefreshToken(refresh_token)
 
-        logging.info("🔐 SmartAPI V2 Login Successful")
+        logging.info("🔐 SmartAPI V2 MPIN Login Successful")
         return smart
 
     except Exception as e:
         logging.error(f"❌ SmartAPI V2 Login Failed: {e}")
         return None
-
-
 
 # --------------------------------------------
 # RUN
