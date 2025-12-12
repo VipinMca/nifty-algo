@@ -3,6 +3,10 @@ import json
 
 SCRIP_URL = "https://github.com/VipinMca/nifty-algo/releases/download/algo/scrip_master.json"
 
+
+# ------------------------------
+# LOAD JSON (with redirect + HTML check)
+# ------------------------------
 def load_scrip_master():
     print("Downloading scrip master…")
     response = requests.get(SCRIP_URL, allow_redirects=True)
@@ -11,7 +15,7 @@ def load_scrip_master():
 
     response.raise_for_status()
 
-    # If GitHub returns HTML, show it
+    # Detect HTML (bad URL or redirect)
     if response.text.strip().startswith("<"):
         print("ERROR: Received HTML instead of JSON")
         print(response.text[:500])
@@ -19,77 +23,93 @@ def load_scrip_master():
 
     return response.json()
 
-scrip_master = load_scrip_master()
-print("FIRST ITEM:", scrip_master[0])
-exit()
 
-# data = load_scrip_master()
+data = load_scrip_master()
+print("FIRST ITEM:", data[0])
 
+
+# Normalize strings
+def norm(x):
+    return (x or "").strip().upper()
+
+
+# ------------------------------
+# FLEXIBLE TOKEN FINDER
+# ------------------------------
 def find_token(exchange, symbol, instrumenttype=None, expiry=None, strike=None):
-    exchange = exchange.upper()
-    symbol = symbol.upper()
+    ex = norm(exchange)
+    sym = norm(symbol)
 
-    for item in scrip_master:
-        # Check exchange
-        if item.get("exch_seg", "").upper() != exchange:
+    for item in data:
+
+        # Exchange match
+        if norm(item.get("exch_seg")) != ex:
             continue
 
-        # Check symbol (case-insensitive)
-        if item.get("symbol", "").upper() != symbol and item.get("name", "").upper() != symbol:
+        # Symbol match (symbol OR name OR partial match)
+        if (
+            sym != norm(item.get("symbol")) and
+            sym != norm(item.get("name")) and
+            sym not in norm(item.get("symbol")) and
+            sym not in norm(item.get("name"))
+        ):
             continue
 
-        # Optional: instrument type match
-        if instrumenttype and item.get("instrumenttype", "").upper() != instrumenttype.upper():
+        # Instrument type
+        if instrumenttype and norm(item.get("instrumenttype")) != norm(instrumenttype):
             continue
 
-        # Optional: expiry match
-        if expiry and item.get("expiry", "") != expiry:
+        # Expiry
+        if expiry and item.get("expiry") != expiry:
             continue
 
-        # Optional: strike match
-        if strike and float(item.get("strike", "0")) != float(strike):
-            continue
+        # Strike
+        if strike:
+            try:
+                if float(item.get("strike", 0)) != float(strike):
+                    continue
+            except:
+                continue
 
         return item["token"]
 
     return None
 
 
+# ------------------------------
+# TEST CASES
+# ------------------------------
 
-# ----------------------------------------
-# TEST TOKENS
-# ----------------------------------------
+print("\n--- TEST CASES ---")
 
-print("RELIANCE token =", find_token("NSE", "RELIANCE"))
-print("NIFTY FUT token sample:", find_token("NFO", "NIFTY24JANFUT"))
+print("INDEX: NIFTY token =", find_token("NSE", "NIFTY"))
 
-# ----------------------------------------
-# FIND NIFTY FUT BY EXPIRY
-# ----------------------------------------
+print("INDEX: NIFTY 50 token =", find_token("NSE", "Nifty 50"))
 
+print("EQUITY: RELIANCE token =", find_token("NSE", "RELIANCE"))
+
+print("Trying generic NIFTY future match:")
+print("Token:", find_token("NFO", "NIFTY", instrumenttype="FUTIDX"))
+
+
+# ------------------------------
+# Specific future finder
+# ------------------------------
 def find_nifty_future(expiry_date):
     """
-    expiry_date format example: '30JAN2024'
+    expiry_date must match EXACT JSON expiry format
     """
-    for item in scrip_master:
+    for item in data:
         if (
-            item["exch_seg"] == "NFO"
-            and item["instrumenttype"] == "FUTIDX"
-            and item["name"] == "NIFTY"
-            and item["expiry"] == expiry_date
+            norm(item.get("exch_seg")) == "NFO" and
+            norm(item.get("instrumenttype")) == "FUTIDX" and
+            norm(item.get("name")) == "NIFTY" and
+            item.get("expiry") == expiry_date
         ):
-            return item["symbol"], item["token"]
+            return item.get("symbol"), item.get("token")
     return None, None
 
 
 symbol, token = find_nifty_future("30JAN2024")
 print("Nifty Future Symbol:", symbol)
 print("Nifty Future Token:", token)
-
-
-
-
-
-
-
-
