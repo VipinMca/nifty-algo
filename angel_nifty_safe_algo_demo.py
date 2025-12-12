@@ -413,37 +413,40 @@ def run_algo_demo(client):
 # --------------------------------------------
 # REAL ANGEL ONE SMARTAPI V2 CLIENT (MPIN + TOTP)
 # --------------------------------------------
-from SmartApi import SmartConnect
-import pyotp, os, logging
+from smartapi import SmartConnect
+import pyotp
+import os
+import logging
 
 def create_client():
     try:
         api_key = os.getenv("API_KEY")
         client_id = os.getenv("CLIENT_ID")
-        password = os.getenv("PASSWORD")
+        mpin = os.getenv("MPIN")
         totp_secret = os.getenv("TOTP_SECRET")
 
-        print("DEBUG VARS:", api_key, client_id, password, totp_secret)
+        if not all([api_key, client_id, mpin, totp_secret]):
+            raise Exception("Missing required environment variables")
 
         totp = pyotp.TOTP(totp_secret).now()
-        print("DEBUG TOTP:", totp)
 
         smart = SmartConnect(api_key)
-        data = smart.generateSession(client_id, password, totp)
 
+        # V2 MPIN Login
+        data = smart.generateSessionV2(client_id, mpin, totp)
         print("DEBUG LOGIN RESPONSE:", data)
 
-        if data is None or "data" not in data:
-            raise Exception("SmartAPI returned invalid login (None).")
+        jwt_token = data["data"]["jwtToken"]
+        refresh_token = data["data"]["refreshToken"]
 
-        smart.setAccessToken(data['data']['jwtToken'])
-        smart.setRefreshToken(data['data']['refreshToken'])
+        smart.setAccessToken(jwt_token)
+        smart.setRefreshToken(refresh_token)
 
-        logging.info("🔐 SmartAPI V1 Login Successful")
+        logging.info("🔐 SmartAPI V2 MPIN Login Successful")
         return smart
 
     except Exception as e:
-        logging.error(f"❌ Login failed: {e}")
+        logging.error(f"❌ SmartAPI V2 Login Failed: {e}")
         return None
 
 # --------------------------------------------
@@ -456,6 +459,7 @@ if __name__ == "__main__":
         run_algo_demo(client)
     except Exception as e:
         logger.exception("Algo crashed: %s", e)
+
 
 
 
