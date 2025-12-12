@@ -23,9 +23,10 @@ while True:
     time.sleep(wait_seconds)
 
     log("Starting NIFTY Safe Option Demo Algo...")
-    subprocess.run(["python", "test_imports.py"])
+    subprocess.run(["python", "angel_nifty_safe_algo_demo"])
 
     log("Algo run finished. Will schedule next day.")
+
 
 
 
