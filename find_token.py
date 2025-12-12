@@ -6,8 +6,11 @@ SCRIP_URL = "https://github.com/VipinMca/nifty-algo/releases/tag/algo/scrip_mast
 def load_scrip_master():
     print("Downloading scrip master…")
     response = requests.get(SCRIP_URL)
+    print("STATUS:", response.status_code)
+    print("RAW RESPONSE:", response.text[:500])  # print first 500 chars
     response.raise_for_status()
     return response.json()
+
 
 scrip_master = load_scrip_master()
 
@@ -48,5 +51,6 @@ def find_nifty_future(expiry_date):
 symbol, token = find_nifty_future("30JAN2024")
 print("Nifty Future Symbol:", symbol)
 print("Nifty Future Token:", token)
+
 
 
