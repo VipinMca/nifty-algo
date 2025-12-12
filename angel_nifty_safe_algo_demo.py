@@ -410,16 +410,46 @@ def run_algo_demo(client):
 # --------------------------------------------
 # create_client fallback (was missing previously)
 # --------------------------------------------
-def create_client():
-    """
-    Return a client/session object for broker APIs.
-    The real implementation depends on broker (Angel SmartAPI etc).
-    This fallback returns None and logs a message.
-    Replace this with your real create_client() that authenticates with your broker.
-    """
-    logger.info("create_client() fallback used — no broker client created. Replace with real implementation.")
-    return None
+# --------------------------------------------
+# REAL ANGEL ONE SMARTAPI V2 CLIENT (MPIN + TOTP)
+# --------------------------------------------
+from smartapi import SmartConnect
+import pyotp
 
+def create_client():
+    try:
+        client_id = os.getenv("CLIENT_ID")
+        api_key = os.getenv("API_KEY")
+        mpin = os.getenv("MPIN")
+        totp_secret = os.getenv("TOTP_SECRET")
+
+        if not all([client_id, api_key, mpin]):
+            raise Exception("Missing CLIENT_ID / API_KEY / MPIN environment variables")
+
+        # Generate TOTP (SmartAPI V2 requirement)
+        if totp_secret:
+            totp = pyotp.TOTP(totp_secret).now()
+        else:
+            raise Exception("TOTP_SECRET not set for MPIN login")
+
+        # Create smart client
+        smart = SmartConnect(api_key)
+
+        # Login using client_id + mpin + totp
+        data = smart.generateSessionV2(client_id, mpin, totp)
+
+        jwt_token = data["data"]["jwtToken"]
+        refresh_token = data["data"]["refreshToken"]
+
+        smart.setAccessToken(jwt_token)
+        smart.setRefreshToken(refresh_token)
+
+        logging.info("🔐 Angel One SmartAPI V2 Login Successful")
+        return smart
+
+    except Exception as e:
+        logging.error("❌ Angel login failed: %s", e)
+        return None
 
 # --------------------------------------------
 # RUN
@@ -431,4 +461,5 @@ if __name__ == "__main__":
         run_algo_demo(client)
     except Exception as e:
         logger.exception("Algo crashed: %s", e)
+
 
