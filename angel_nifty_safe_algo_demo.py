@@ -1,56 +1,73 @@
-import requests
+"""
+SAFE DEMO VERSION — DOES NOT PLACE REAL ORDERS
+Works with SmartAPI + ltp_helpers.py + scrip_master.json.
+Provides live updates to a Web Dashboard via /api/update.
+"""
+
+import time
+import datetime as dt
 import json
+import logging, sys
+import requests
 
-class SmartConnect:
+from ltp_helpers import create_client, get_ltp
+from find_token import find_token
 
-    def __init__(self, api_key):
-        self.api_key = api_key
-        self.jwt_token = None
-        self.refresh_token = None
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger()
 
-        self.headers = {
-            "Content-Type": "application/json; charset=utf-8",
-            "X-PrivateKey": self.api_key,
-            "X-UserType": "USER",
-            "X-SourceID": "WEB",
-            "Accept": "application/json",
-            "X-ClientLocalIP": "127.0.0.1",
-            "X-ClientPublicIP": "127.0.0.1",
-            "X-MACAddress": "AA-BB-CC-11-22-33"
-        }
+# --------------------------------------------
+# CONFIG
+# --------------------------------------------
+UNDERLYING = "NIFTY"
+ENTRY_TIME = (9, 25)
+EXIT_TIME = (15, 15)
+STRIKE_DISTANCE_PCT = 0.5
+HEDGE_DISTANCE_PTS = 100
+ROUND = 50
+POLL_INTERVAL = 5
+LIVE = False  # DEMO ONLY
 
-    def generateSessionV2(self, client_id, mpin, totp):
-        url = f"{BASE_URL}/rest/auth/angelbroking/user/v2/loginByMpin"
+SCRIP_MASTER_PATH = "/app/scrip_master.json"  # Railway-friendly path
 
+
+# --------------------------------------------
+# SEND STATUS TO WEB DASHBOARD
+# --------------------------------------------
+def push_status(nifty_ltp, legs, prices, net_credit, pnl, logs):
+    try:
         payload = {
-            "clientcode": client_id,
-            "mpin": mpin,
-            "totp": str(totp)
+            "timestamp": dt.datetime.now().isoformat(),
+            "nifty_ltp": nifty_ltp,
+            "legs": legs,
+            "net_credit": net_credit,
+            "pnl": pnl,
+            "logs": logs[-30:]
         }
+        requests.post("http://localhost:5000/api/update", json=payload, timeout=0.5)
+    except Exception as e:
+        print("Dashboard update failed:", e)
 
-        response = requests.post(url, json=payload, headers=self.headers)
 
-        print("RAW LOGIN RESPONSE TEXT:", response.text)
-        print("STATUS:", response.status_code)
+# --------------------------------------------
+# HELPERS
+# --------------------------------------------
+def round_strike(x):
+    return int(round(x / ROUND) * ROUND)
 
-        # Reject HTML responses (WAF block)
-        if "<html>" in response.text.lower():
-            raise Exception("Angel One WAF rejected the request. Headers/URL incorrect.")
 
-        data = response.json()
+def wait_until(h, m):
+    logger.info(f"⏳ Waiting until {h}:{m} ...")
+    while True:
+        now = dt.datetime.now()
+        if now.hour > h or (now.hour == h and now.minute >= m):
+            break
+        time.sleep(2)
 
-        if not data.get("status"):
-            raise Exception(f"Login failed: {data.get('message')}")
 
-        # Set tokens
-        self.jwt_token = data["data"]["jwtToken"]
-        self.refresh_token = data["data"]["refreshToken"]
-
-        return data
-
-    def setAccessToken(self, token):
-        self.jwt_token = token
-
-    def setRefreshToken(self, token):
-        self.refresh_token = token
-
+# --------------------------------------------
+# FETCH NEXT EXP
