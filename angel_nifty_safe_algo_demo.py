@@ -10,7 +10,7 @@ import json
 import logging, sys
 import requests  # <-- Added for dashboard updates
 
-from ltp_helpers import create_client, get_ltp
+from ltp_helpers import get_ltp
 from find_token import find_token
 
 logging.basicConfig(
@@ -288,4 +288,5 @@ def run_algo_demo(client):
 if __name__ == "__main__":
     client = create_client()
     run_algo_demo(client)
+
 
