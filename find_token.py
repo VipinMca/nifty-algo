@@ -20,6 +20,8 @@ def load_scrip_master():
     return response.json()
 
 scrip_master = load_scrip_master()
+print("FIRST ITEM:", scrip_master[0])
+exit()
 
 def find_token(exch_seg, symbol):
     for item in scrip_master:
@@ -57,6 +59,7 @@ def find_nifty_future(expiry_date):
 symbol, token = find_nifty_future("30JAN2024")
 print("Nifty Future Symbol:", symbol)
 print("Nifty Future Token:", token)
+
 
 
 
