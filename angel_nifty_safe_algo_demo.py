@@ -413,7 +413,7 @@ def run_algo_demo(client):
 # --------------------------------------------
 # REAL ANGEL ONE SMARTAPI V2 CLIENT (MPIN + TOTP)
 # --------------------------------------------
-from SmartApi import SmartConnect
+from smartapi import SmartConnect
 import pyotp
 import os
 import logging
@@ -422,30 +422,32 @@ def create_client():
     try:
         api_key = os.getenv("API_KEY")
         client_id = os.getenv("CLIENT_ID")
-        password = os.getenv("PASSWORD")   # V1 requires password, NOT MPIN
+        mpin = os.getenv("MPIN")
         totp_secret = os.getenv("TOTP_SECRET")
 
-        if not all([api_key, client_id, password, totp_secret]):
-            raise Exception("Missing one of API_KEY, CLIENT_ID, PASSWORD, TOTP_SECRET")
+        if not all([api_key, client_id, mpin, totp_secret]):
+            raise Exception("Missing environment variables")
 
-        # Generate TOTP
+        # SmartAPI V2 → MPIN + TOTP
         totp = pyotp.TOTP(totp_secret).now()
 
         smart = SmartConnect(api_key)
 
-        # V1 login flow
-        data = smart.generateSession(client_id, password, totp)
+        data = smart.generateSessionV2(client_id, mpin, totp)
 
-        refresh_token = data['data']['refreshToken']
-        smart.setAccessToken(data['data']['jwtToken'])
-        smart.setRefreshToken(refresh_token)
+        token = data["data"]["jwtToken"]
+        refresh = data["data"]["refreshToken"]
 
-        logging.info("🔐 SmartAPI V1 Login Successful")
+        smart.setAccessToken(token)
+        smart.setRefreshToken(refresh)
+
+        logging.info("🔐 SmartAPI V2 Login Successful")
         return smart
 
     except Exception as e:
-        logging.error(f"❌ Angel login failed: {e}")
+        logging.error(f"❌ SmartAPI V2 Login Failed: {e}")
         return None
+
 
 
 # --------------------------------------------
@@ -458,6 +460,7 @@ if __name__ == "__main__":
         run_algo_demo(client)
     except Exception as e:
         logger.exception("Algo crashed: %s", e)
+
 
 
 
