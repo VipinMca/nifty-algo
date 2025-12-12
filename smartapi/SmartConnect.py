@@ -1,6 +1,6 @@
 import requests
-import json
 from smartapi.api_constants import BASE_URL
+
 
 class SmartConnect:
 
@@ -9,55 +9,45 @@ class SmartConnect:
         self.jwt_token = None
         self.refresh_token = None
 
-        # Default header template for Angel One SmartAPI V2
-        self.base_headers = {
-            "Content-Type": "application/json",
+        self.headers = {
+            "Content-Type": "application/json; charset=utf-8",
+            "Accept": "application/json",
             "X-PrivateKey": self.api_key,
             "X-UserType": "USER",
             "X-SourceID": "WEB",
-            "Accept": "application/json",
             "X-ClientLocalIP": "127.0.0.1",
-            "X-ClientPublicIP": "106.193.147.98",
-            "X-MACAddress": "aa:bb:cc:dd:ee:ff"
+            "X-ClientPublicIP": "127.0.0.1",
+            "X-MACAddress": "AA-BB-CC-11-22-33"
         }
 
     def generateSessionV2(self, client_id, mpin, totp):
-    url = f"{BASE_URL}/rest/auth/angelbroking/user/v1/loginByMpin"
+        url = f"{BASE_URL}/rest/auth/angelbroking/user/v1/loginByMpin"
 
-    payload = {
-        "clientcode": client_id,
-        "mpin": mpin,
-        "totp": str(totp)
-    }
+        payload = {
+            "clientcode": client_id,
+            "mpin": mpin,
+            "totp": str(totp)
+        }
 
-    headers = {
-        "Content-Type": "application/json; charset=utf-8",
-        "Accept": "application/json",
-        "X-PrivateKey": self.api_key,
-        "X-UserType": "USER",
-        "X-SourceID": "WEB",
-        "X-ClientLocalIP": "127.0.0.1",
-        "X-ClientPublicIP": "127.0.0.1",
-        "X-MACAddress": "AA-BB-CC-11-22-33"
-    }
+        response = requests.post(url, json=payload, headers=self.headers)
 
-    response = requests.post(url, json=payload, headers=headers)
+        print("RAW LOGIN RESPONSE TEXT:", response.text)
+        print("STATUS:", response.status_code)
 
-    print("RAW LOGIN RESPONSE TEXT:", response.text)
-    print("STATUS:", response.status_code)
+        # If server returned HTML → WAF blocked the request
+        if "<html>" in response.text.lower():
+            raise Exception("Invalid response from SmartAPI server (WAF blocked).")
 
-    if "<html>" in response.text.lower():
-        raise Exception("Invalid response from SmartAPI server (WAF blocked).")
+        data = response.json()
 
-    data = response.json()
+        if not data.get("status"):
+            raise Exception(f"Login failed: {data.get('message')}")
 
-    if not data.get("status"):
-        raise Exception(f"Login failed: {data.get('message')}")
+        # Save tokens
+        self.jwt_token = data["data"]["jwtToken"]
+        self.refresh_token = data["data"]["refreshToken"]
 
-    self.jwt_token = data["data"]["jwtToken"]
-    self.refresh_token = data["data"]["refreshToken"]
-    return data
-
+        return data
 
     def setAccessToken(self, token):
         self.jwt_token = token
