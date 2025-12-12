@@ -1,7 +1,8 @@
-smartapi-python==2.0.0
+smartapi-python-v2
 pyotp
 requests
 pytz
 pandas
 logzero
 websocket-client
+
