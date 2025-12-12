@@ -1,6 +1,6 @@
 import json
 
-FILE_PATH = r"C:\D Drive\Docs\Trade Script\Options\scrip_master.json"
+FILE_PATH = r"scrip_master.json"
 
 def load_scrip_master():
     with open(FILE_PATH, "r") as f:
@@ -45,3 +45,4 @@ def find_nifty_future(expiry_date):
 symbol, token = find_nifty_future("30JAN2024")
 print("Nifty Future Symbol:", symbol)
 print("Nifty Future Token:", token)
+
