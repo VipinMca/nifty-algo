@@ -413,7 +413,7 @@ def run_algo_demo(client):
 # --------------------------------------------
 # REAL ANGEL ONE SMARTAPI V2 CLIENT (MPIN + TOTP)
 # --------------------------------------------
-from smartapi import SmartConnect
+from smartapi_python import SmartConnect
 import pyotp
 
 def create_client():
@@ -461,5 +461,6 @@ if __name__ == "__main__":
         run_algo_demo(client)
     except Exception as e:
         logger.exception("Algo crashed: %s", e)
+
 
 
